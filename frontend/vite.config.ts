@@ -1,15 +1,20 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+// Local type stub so we can read process.env without adding @types/node to
+// devDependencies just for this one file. vite.config.ts runs in Node at
+// build/dev startup, so process is always defined here.
+declare const process: { env: Record<string, string | undefined> };
+
 // Vite 5 blocks requests whose Host header is not in this allowlist (defence
 // against DNS-rebinding attacks on the dev server). When the dev stack runs
 // behind a host-level nginx with a custom domain (e.g. lg.example.com), the
 // proxied Host header trips this guard with "Blocked request" in the page.
 // Set VITE_ALLOWED_HOSTS in deploy/.env to a comma-separated list of the
 // public domains the dev server should answer to.
-const allowedHosts = (process.env.VITE_ALLOWED_HOSTS ?? "")
+const allowedHosts: string[] = (process.env.VITE_ALLOWED_HOSTS ?? "")
   .split(",")
-  .map((s) => s.trim())
+  .map((s: string) => s.trim())
   .filter(Boolean);
 
 export default defineConfig({
