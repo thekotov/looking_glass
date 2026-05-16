@@ -36,7 +36,10 @@ services:
       ENV: ${ENV:-dev}
       DEBUG: ${DEBUG:-true}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://lg:lg@postgres:5432/lookingglass}
+      # Default derives the password from POSTGRES_PASSWORD so a non-default
+      # password in .env doesn't leave the API using the literal "lg:lg" and
+      # failing with "password authentication failed for user lg".
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-lg}:${POSTGRES_PASSWORD:-lg}@postgres:5432/${POSTGRES_DB:-lookingglass}}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:8080","http://localhost:5173"]}
