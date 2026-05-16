@@ -59,6 +59,11 @@ services:
       dockerfile: Dockerfile
       target: dev
     restart: unless-stopped
+    environment:
+      # Comma-separated list of domains the Vite dev server should accept
+      # (Host header allowlist; protects against DNS rebinding). Required
+      # when fronted by a host nginx terminating TLS for a public domain.
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-}
     volumes:
       - ../frontend/src:/app/src
       - ../frontend/public:/app/public
