@@ -10,10 +10,17 @@
 #     ./stop.sh -h | --help   # show this usage
 #
 # Flags:
-#     -v, --volumes           ALSO remove named volumes (postgres-data,
-#                             redis-data, agent-state). DESTRUCTIVE — wipes
-#                             the database. Used when resetting a broken init
-#                             (e.g. wrong POSTGRES_PASSWORD on first boot).
+#     -v, --volumes           ALSO remove this stack's named volumes
+#                             (postgres-data, redis-data, agent-state).
+#                             DESTRUCTIVE — wipes the database. Used when
+#                             resetting a broken init (e.g. wrong
+#                             POSTGRES_PASSWORD on first boot).
+#     --all-volumes           Like -v, but ALSO wipes volumes from BOTH the
+#                             dev (looking-glass_*) and prod
+#                             (looking-glass-prod_*) compose namespaces.
+#                             Useful when switching between dev/prod and
+#                             leftover volumes from the other namespace are
+#                             causing password mismatches.
 
 set -euo pipefail
 
@@ -25,7 +32,7 @@ SERVER_PROD="deploy/docker-compose.prod.yml"
 AGENT="deploy/docker-compose.agent.yml"
 ENV_FILE="deploy/.env"
 
-usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # --- pick docker compose binary (v2 plugin vs legacy) -----------------------
 if docker compose version >/dev/null 2>&1; then
@@ -40,11 +47,13 @@ fi
 # --- arg parsing -------------------------------------------------------------
 TARGET="server"
 REMOVE_VOLUMES=0
+REMOVE_ALL_VOLUMES=0
 for arg in "$@"; do
     case "$arg" in
         server|prod|agent|all|prod-all) TARGET="$arg" ;;
-        -v|--volumes) REMOVE_VOLUMES=1 ;;
-        -h|--help)    usage; exit 0 ;;
+        -v|--volumes)   REMOVE_VOLUMES=1 ;;
+        --all-volumes)  REMOVE_VOLUMES=1; REMOVE_ALL_VOLUMES=1 ;;
+        -h|--help)      usage; exit 0 ;;
         *) echo "unknown argument: $arg" >&2; usage >&2; exit 2 ;;
     esac
 done
@@ -57,11 +66,21 @@ case "$TARGET" in
     prod-all) FILES=("$SERVER_PROD" "$AGENT") ;;
 esac
 
+# If --all-volumes is requested, expand FILES to cover both dev and prod
+# compose namespaces so neither is left with stale volumes.
+if [[ "$REMOVE_ALL_VOLUMES" -eq 1 ]]; then
+    FILES=("$SERVER_DEV" "$SERVER_PROD" "$AGENT")
+fi
+
 # Build extra args for `down`.
 DOWN_ARGS=()
 if [[ "$REMOVE_VOLUMES" -eq 1 ]]; then
     DOWN_ARGS+=("-v")
-    echo "WARNING: -v passed — named volumes (database, redis, agent state) will be DELETED."
+    if [[ "$REMOVE_ALL_VOLUMES" -eq 1 ]]; then
+        echo "WARNING: --all-volumes — wiping volumes for BOTH dev and prod stacks (database, redis, agent state)."
+    else
+        echo "WARNING: -v — named volumes (database, redis, agent state) will be DELETED for this stack."
+    fi
     echo "         Press Ctrl-C within 3 seconds to abort."
     sleep 3
 fi
