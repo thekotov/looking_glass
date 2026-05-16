@@ -11,6 +11,7 @@
 #
 # Flags:
 #     --no-build              skip rebuilding images (use existing)
+#     --no-migrate            skip alembic upgrade head after start
 #     --logs                  follow logs after starting
 
 set -euo pipefail
@@ -23,7 +24,7 @@ SERVER_PROD="deploy/docker-compose.prod.yml"
 AGENT="deploy/docker-compose.agent.yml"
 ENV_FILE="deploy/.env"
 
-usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # --- pick docker compose binary (v2 plugin vs legacy) -----------------------
 if docker compose version >/dev/null 2>&1; then
@@ -39,12 +40,14 @@ fi
 TARGET="server"
 BUILD_FLAG="--build"
 FOLLOW_LOGS=0
+DO_MIGRATE=1
 for arg in "$@"; do
     case "$arg" in
         server|prod|agent|all|prod-all) TARGET="$arg" ;;
-        --no-build) BUILD_FLAG="" ;;
-        --logs)     FOLLOW_LOGS=1 ;;
-        -h|--help)  usage; exit 0 ;;
+        --no-build)   BUILD_FLAG="" ;;
+        --no-migrate) DO_MIGRATE=0 ;;
+        --logs)       FOLLOW_LOGS=1 ;;
+        -h|--help)    usage; exit 0 ;;
         *) echo "unknown argument: $arg" >&2; usage >&2; exit 2 ;;
     esac
 done
@@ -73,6 +76,30 @@ for f in "${FILES[@]}"; do
     # shellcheck disable=SC2086  # BUILD_FLAG is intentionally word-split
     "${DC[@]}" -f "$f" --env-file "$ENV_FILE" up -d $BUILD_FLAG
 done
+
+# Apply migrations on any compose file that has an `api` service. The agent
+# compose doesn't, so this loop skips it cleanly. `up -d` returns once the
+# container is created — the api process inside may still be starting up,
+# so retry exec for up to 30s before giving up.
+if [[ "$DO_MIGRATE" -eq 1 ]]; then
+    for f in "${FILES[@]}"; do
+        if ! "${DC[@]}" -f "$f" --env-file "$ENV_FILE" config --services 2>/dev/null | grep -qx api; then
+            continue
+        fi
+        echo "==> applying migrations ($f)"
+        deadline=$(( $(date +%s) + 30 ))
+        while true; do
+            if "${DC[@]}" -f "$f" --env-file "$ENV_FILE" exec -T api alembic upgrade head; then
+                break
+            fi
+            if (( $(date +%s) >= deadline )); then
+                echo "error: alembic upgrade failed repeatedly — check 'docker compose logs api'" >&2
+                exit 1
+            fi
+            sleep 2
+        done
+    done
+fi
 
 echo
 echo "==> stack is up"
