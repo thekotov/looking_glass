@@ -17,12 +17,14 @@ Self-hosted распределённая сетевая диагностика. 
 ## 🏗️ Архитектура
 
 ```
-браузер ──HTTPS/WSS──▶ nginx ──▶ FastAPI + WS hub ──▶ Postgres + Redis
-                                       ▲
-                                       │ poll / stream
-                                  ┌────┴────┐
-                                агенты (Go, host network, CAP_NET_RAW)
+браузер ──HTTPS/WSS──▶ host nginx ──HTTP──▶ docker nginx ──▶ FastAPI + WS hub ──▶ Postgres + Redis
+                                                  ▲
+                                                  │ poll / stream
+                                             ┌────┴────┐
+                                           агенты (Go, host network, CAP_NET_RAW)
 ```
+
+TLS терминируется хостовым nginx — внутренний контейнер слушает только HTTP. Для дева достаточно одного docker nginx на `http://localhost:8080`.
 
 ## 🚀 Быстрый старт
 
@@ -34,9 +36,11 @@ docker compose -f deploy/docker-compose.server.yml up -d --build
 docker compose -f deploy/docker-compose.server.yml exec api alembic upgrade head
 ```
 
-- 🌐 UI — `https://localhost` (self-signed cert)
-- 🔧 API — `https://localhost/api/health`
+- 🌐 UI — `http://localhost:8080`
+- 🔧 API — `http://localhost:8080/api/health`
 - 👤 Логин — `admin` / `admin` (поменяй в `deploy/.env` **до** старта)
+
+В проде TLS терминируется на хостовом nginx — см. `deploy/nginx/lg.example.com.conf` и [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ### Поднять агента
 
@@ -44,7 +48,7 @@ docker compose -f deploy/docker-compose.server.yml exec api alembic upgrade head
 docker compose -f deploy/docker-compose.agent.yml up -d --build
 ```
 
-Для self-signed dev-сервера: `INSECURE_TLS=true` в `deploy/.env`.
+Если хостовый nginx использует self-signed cert: `INSECURE_TLS=true` в `deploy/.env`.
 
 Затем в UI → **Manage › Agents** → проставь теги → **Approve**.
 

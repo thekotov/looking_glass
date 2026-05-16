@@ -14,11 +14,11 @@ services:
       - NET_RAW
       - NET_ADMIN
     environment:
-      SERVER_URL: ${SERVER_URL:-https://host.docker.internal}
+      SERVER_URL: ${SERVER_URL:-http://host.docker.internal:8080}
       AGENT_HOSTNAME: ${AGENT_HOSTNAME:-agent-eu-test}
       HEARTBEAT_INTERVAL: ${HEARTBEAT_INTERVAL:-15s}
       POLL_INTERVAL: ${POLL_INTERVAL:-5s}
-      INSECURE_TLS: ${INSECURE_TLS:-true}
+      INSECURE_TLS: ${INSECURE_TLS:-false}
       STATE_PATH: /var/lib/agent/state.json
     volumes:
       - agent2-state:/var/lib/agent

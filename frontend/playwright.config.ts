@@ -1,9 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Smoke-test config. Targets the live dev stack on https://localhost (the same
- * thing developers see via `docker compose up`). Self-signed cert is accepted
- * with `ignoreHTTPSErrors: true`.
+ * Smoke-test config. Targets the live dev stack on http://localhost:8080
+ * (the same thing developers see via `docker compose up`). The docker nginx
+ * is HTTP only — TLS in prod is terminated by a host-level nginx and is out
+ * of scope for these smoke tests.
  *
  * Run with:   npm run test:e2e
  * Headed UI:  npm run test:e2e:headed
@@ -20,7 +21,7 @@ export default defineConfig({
   fullyParallel: false,
   reporter: [["list"]],
   use: {
-    baseURL: process.env.LG_BASE_URL ?? "https://localhost",
+    baseURL: process.env.LG_BASE_URL ?? "http://localhost:8080",
     ignoreHTTPSErrors: true,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",

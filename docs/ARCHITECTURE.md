@@ -43,7 +43,7 @@ Distributed network diagnostics platform. One server, many agents, public target
 - **Server** — Python 3.13 + FastAPI + async SQLAlchemy + Alembic. Postgres for state, Redis for live-stream buffer + pub/sub.
 - **Agents** — Go 1.25 single-binary in Docker (`network_mode: host` for real-network measurements in prod; `CAP_NET_RAW` + `CAP_NET_ADMIN`).
 - **Frontend** — React 19 + Vite + Tailwind + TanStack Query + react-router. Talks to the API and connects to WS for live task output.
-- **nginx** — reverse proxy with auto-generated self-signed cert for dev.
+- **nginx (in-stack)** — HTTP-only reverse proxy on port 8080. Routes `/api/*`, `/ws/*`, `/metrics` to FastAPI and `/` to the Vite dev server (or built static assets in prod). TLS is terminated by a separate host-level nginx in production — see `deploy/nginx/lg.example.com.conf`.
 
 ## Task lifecycle
 

@@ -13,7 +13,7 @@ services:
       - NET_RAW
       - NET_ADMIN
     environment:
-      SERVER_URL: ${SERVER_URL:-https://localhost}
+      SERVER_URL: ${SERVER_URL:-http://host.docker.internal:8080}
       AGENT_HOSTNAME: ${AGENT_HOSTNAME:-}
       HEARTBEAT_INTERVAL: ${HEARTBEAT_INTERVAL:-15s}
       POLL_INTERVAL: ${POLL_INTERVAL:-5s}

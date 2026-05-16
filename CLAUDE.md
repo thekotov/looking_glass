@@ -11,7 +11,7 @@ Components live in this monorepo:
 - `server/` — FastAPI (Python 3.13), async SQLAlchemy + Alembic, PostgreSQL, Redis
 - `frontend/` — React 19 + Vite + Tailwind 3 + TypeScript
 - `agent/` — Go 1.23+ single-binary, runs in Docker with `network_mode: host` and `CAP_NET_RAW`/`CAP_NET_ADMIN`
-- `deploy/` — docker-compose files, nginx config with self-signed cert generator
+- `deploy/` — docker-compose files; in-stack nginx is HTTP only (TLS is meant to be terminated by a host-level nginx)
 
 Agents register themselves on the server (status=pending) and an admin approves them in the UI. Agents poll the server for tasks; long-running tasks (MTR cycles, hping3) stream partial output back over WebSocket.
 
@@ -39,7 +39,9 @@ cp deploy/.env.example deploy/.env
 docker compose -f deploy/docker-compose.server.yml up -d --build
 ```
 
-UI: `https://localhost` (self-signed cert — browser will warn). API: `https://localhost/api/health`.
+UI: `http://localhost:8080`. API: `http://localhost:8080/api/health`.
+
+The docker nginx is HTTP only by design — TLS is meant to be terminated by a host-level nginx (see `deploy/nginx/lg.example.com.conf`). For a public deployment, set `HTTP_BIND=127.0.0.1` in `deploy/.env` so only the host proxy can reach the container, and point a hostname at the host nginx with a real cert.
 
 Logs: `docker compose -f deploy/docker-compose.server.yml logs -f api`.
 
@@ -52,13 +54,13 @@ Tear down (wipe volumes): `docker compose -f deploy/docker-compose.server.yml do
 docker compose -f deploy/docker-compose.agent.yml up --build
 ```
 
-Set `SERVER_URL` and `INSECURE_TLS=true` in `deploy/.env` for dev (self-signed cert).
+Defaults in `deploy/.env.example` point the agent at `http://host.docker.internal:8080`. Override `SERVER_URL` (and set `INSECURE_TLS=true` if your host nginx uses a self-signed cert) for production.
 
 ### Agent dev (without Docker)
 
 ```bash
 cd agent
-SERVER_URL=https://localhost INSECURE_TLS=true go run ./cmd/agent
+SERVER_URL=http://localhost:8080 go run ./cmd/agent
 ```
 
 Build binary: `go build -o bin/agent ./cmd/agent`.
@@ -114,9 +116,9 @@ On register, agent sends `capabilities: ["ping","mtr","tcp_scan","syn_scan","ipv
 
 Agent runs with `network_mode: host` + `CAP_NET_RAW` + `CAP_NET_ADMIN`. This means the agent sees the host's network stack directly — necessary for accurate timing and raw sockets. Consequence: only one agent per host. Multi-tenancy is per-VPS, not per-container.
 
-### nginx with auto-generated self-signed cert (dev only)
+### nginx is HTTP only inside the docker stack
 
-`deploy/nginx/gen-cert.sh` runs at container start and generates a cert in `/etc/nginx/certs/` if none exists. The cert lives on a Docker volume, so it persists across `down`/`up`. To rotate: `docker volume rm looking-glass_nginx-certs`. For production, mount a real cert into that volume path.
+The docker `nginx` service listens on plain HTTP (port 80 in-container, published as `HTTP_PORT` on the host, default `8080`). It is intended to sit behind a host-level nginx that terminates TLS. `deploy/nginx/lg.example.com.conf` is a starter for that host-side server block — drop it into `/etc/nginx/conf.d/`, add your TLS block, and proxy to `127.0.0.1:8080`. There is no in-container cert generation any more.
 
 ### CORS / WebSocket through nginx
 

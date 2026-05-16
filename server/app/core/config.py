@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     )
     redis_url: RedisDsn = Field(default="redis://redis:6379/0")
 
-    cors_origins: list[str] = ["https://localhost", "http://localhost:5173"]
+    cors_origins: list[str] = ["http://localhost:8080", "http://localhost:5173"]
 
     secret_key: str = "change-me-in-production-this-is-only-for-dev"
     jwt_access_ttl_minutes: int = 15
