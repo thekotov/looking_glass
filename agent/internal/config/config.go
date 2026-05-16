@@ -18,6 +18,10 @@ type Config struct {
 	StatePath         string
 	Capabilities      []string
 	MetricsAddr       string
+	// MaxConcurrency caps how many tasks run on this agent at once. Without it,
+	// a single long-running task (mtr cycles=100, hping3) blocks every other
+	// poll because executeTask is dispatched synchronously from the poll loop.
+	MaxConcurrency int
 }
 
 func Load() (*Config, error) {
@@ -53,9 +57,21 @@ func Load() (*Config, error) {
 		statePath = "/var/lib/agent/state.json"
 	}
 
+	// Bind to loopback by default. The agent container uses network_mode: host,
+	// so a bare ":9100" would expose /metrics and /healthz to the public
+	// internet. Operators that scrape from a separate host must set
+	// METRICS_ADDR explicitly (e.g. "0.0.0.0:9100" inside a private network).
 	metricsAddr := os.Getenv("METRICS_ADDR")
 	if metricsAddr == "" {
-		metricsAddr = ":9100"
+		metricsAddr = "127.0.0.1:9100"
+	}
+
+	maxConcurrency, err := parseIntEnv("AGENT_MAX_CONCURRENCY", 4)
+	if err != nil {
+		return nil, err
+	}
+	if maxConcurrency < 1 {
+		maxConcurrency = 1
 	}
 
 	// Capabilities are populated at runtime from the task Registry — leave nil here.
@@ -70,7 +86,20 @@ func Load() (*Config, error) {
 		StatePath:         statePath,
 		Capabilities:      caps,
 		MetricsAddr:       metricsAddr,
+		MaxConcurrency:    maxConcurrency,
 	}, nil
+}
+
+func parseIntEnv(key string, def int) (int, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s=%q: %w", key, v, err)
+	}
+	return n, nil
 }
 
 func parseDurationEnv(key string, def time.Duration) (time.Duration, error) {

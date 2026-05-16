@@ -16,6 +16,7 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
+from dataclasses import dataclass, field
 from typing import Iterable
 from urllib.parse import urlparse
 
@@ -95,10 +96,33 @@ def _resolve(hostname: str) -> Iterable[ipaddress.IPv4Address | ipaddress.IPv6Ad
             continue
 
 
-def validate_target(target: str) -> str:
-    """Normalize and validate a target. Returns the normalized form (lowercased).
+@dataclass
+class ResolvedTarget:
+    """Result of validate_target_resolved: normalized string plus the IPs we
+    actually checked. Useful for audit logs and for pinning the address an
+    agent should connect to (defense against DNS rebinding between server
+    validation and the eventual connect — though the agent re-validates and
+    re-resolves, so this is informational on the server side)."""
 
-    Raises TargetValidationError if the target is not allowed.
+    normalized: str
+    resolved_ips: list[str] = field(default_factory=list)
+
+
+def validate_target(target: str) -> str:
+    """Backwards-compatible thin wrapper around validate_target_resolved.
+
+    Returns just the normalized target string. Existing call sites use this
+    for the value persisted on the Task row.
+    """
+    return validate_target_resolved(target).normalized
+
+
+def validate_target_resolved(target: str) -> ResolvedTarget:
+    """Normalize, validate, and return the resolved IPs (if any).
+
+    Raises TargetValidationError if the target is not allowed. For an IP
+    literal, resolved_ips contains that single address. For a hostname,
+    it contains every A/AAAA record we checked against the blocklist.
     """
     if not target or len(target) > 2048:
         raise TargetValidationError("target is empty or too long")
@@ -112,9 +136,8 @@ def validate_target(target: str) -> str:
         u = urlparse(t)
         if not u.hostname:
             raise TargetValidationError("URL missing hostname")
-        # Validate the hostname/IP portion via the same logic.
-        validate_target(u.hostname)
-        return t
+        inner = validate_target_resolved(u.hostname)
+        return ResolvedTarget(normalized=t, resolved_ips=inner.resolved_ips)
 
     # Hostname/IP path uses the conservative length limit.
     if len(t) > 253:
@@ -128,7 +151,7 @@ def validate_target(target: str) -> str:
 
     if ip is not None:
         _check_ip(ip)
-        return str(ip)
+        return ResolvedTarget(normalized=str(ip), resolved_ips=[str(ip)])
 
     # Hostname path.
     if not _HOSTNAME_RE.match(t):
@@ -140,4 +163,4 @@ def validate_target(target: str) -> str:
     for addr in addresses:
         _check_ip(addr)
 
-    return t
+    return ResolvedTarget(normalized=t, resolved_ips=[str(a) for a in addresses])

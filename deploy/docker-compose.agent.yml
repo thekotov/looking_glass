@@ -21,6 +21,8 @@ services:
       # NEVER set this in production.
       INSECURE_TLS: ${INSECURE_TLS:-false}
       STATE_PATH: /var/lib/agent/state.json
+      METRICS_ADDR: ${METRICS_ADDR:-127.0.0.1:9100}
+      AGENT_MAX_CONCURRENCY: ${AGENT_MAX_CONCURRENCY:-4}
     volumes:
       - agent-state:/var/lib/agent
     # Required on Linux for host.docker.internal to resolve to the host.

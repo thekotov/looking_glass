@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -52,6 +53,8 @@ func main() {
 		"version", config.Version,
 		"state_path", cfg.StatePath,
 		"capabilities", cfg.Capabilities,
+		"max_concurrency", cfg.MaxConcurrency,
+		"metrics_addr", cfg.MetricsAddr,
 	)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -84,14 +87,33 @@ func run(ctx context.Context, cfg *config.Config, reg *tasks.Registry, gate *tas
 		c.SetToken(st.Token)
 	}
 
+	// Worker pool semaphore: caps total concurrent executeTask goroutines so a
+	// stuck task can't starve the poll loop, while still allowing other tasks
+	// to make progress.
+	workers := make(chan struct{}, cfg.MaxConcurrency)
+	var taskWG sync.WaitGroup
+
 	// Heartbeat, poll, and metrics-server loops run concurrently.
 	errCh := make(chan error, 3)
 	go func() { errCh <- heartbeatLoop(ctx, cfg, c, store) }()
-	go func() { errCh <- pollLoop(ctx, cfg, c, reg, gate) }()
+	go func() { errCh <- pollLoop(ctx, cfg, c, reg, gate, workers, &taskWG) }()
 	go func() { errCh <- metrics.Serve(ctx, cfg.MetricsAddr) }()
 
 	// Wait for any loop to return; ctx cancellation propagates to both.
 	err = <-errCh
+	// Give in-flight task goroutines a brief grace period to submit their
+	// results before the process exits. Without this, a clean SIGTERM races
+	// with submitResult and leaves tasks pinned in "claimed" on the server.
+	done := make(chan struct{})
+	go func() {
+		taskWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		slog.Warn("shutdown timeout: some tasks did not finish submitting")
+	}
 	cancel := context.AfterFunc(ctx, func() {})
 	defer cancel()
 	return err
@@ -188,6 +210,7 @@ func beat(
 
 func pollLoop(
 	ctx context.Context, cfg *config.Config, c *client.Client, reg *tasks.Registry, gate *tasks.Gate,
+	workers chan struct{}, taskWG *sync.WaitGroup,
 ) error {
 	// Use cfg.PollInterval as the empty-queue idle wait. After completing a
 	// task we immediately poll again — drain the queue without backoff.
@@ -200,21 +223,37 @@ func pollLoop(
 		case <-ticker.C:
 		}
 
+		// Block here until a worker slot is free. Without this we could claim
+		// tasks faster than we can run them and pile up goroutines.
+		select {
+		case workers <- struct{}{}:
+		case <-ctx.Done():
+			return nil
+		}
+
 		task, err := c.PollTask(ctx)
 		if errors.Is(err, client.ErrUnauthorized) {
 			// Heartbeat loop owns re-registration; just wait it out.
+			<-workers
 			continue
 		}
 		if err != nil {
 			slog.Warn("poll failed", "error", err)
+			<-workers
 			continue
 		}
 		if task == nil {
+			<-workers
 			continue
 		}
 
 		slog.Info("got task", "task_id", task.ID, "type", task.Type, "target", task.Target)
-		executeTask(ctx, c, reg, gate, task)
+		taskWG.Add(1)
+		go func(t *tasks.Task) {
+			defer taskWG.Done()
+			defer func() { <-workers }()
+			executeTask(ctx, c, reg, gate, t)
+		}(task)
 	}
 }
 

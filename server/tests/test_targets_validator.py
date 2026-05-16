@@ -17,6 +17,7 @@ from app.validators.targets import (
     _BLOCKED_V6,
     _check_ip,
     validate_target,
+    validate_target_resolved,
 )
 import ipaddress
 
@@ -111,6 +112,25 @@ def test_validate_target_rejects_empty() -> None:
 def test_validate_target_rejects_too_long() -> None:
     with pytest.raises(TargetValidationError):
         validate_target("a" * 3000)
+
+
+def test_validate_target_resolved_ip_literal_returns_self() -> None:
+    # IP-literal path: resolved_ips is the IP itself, no DNS lookup happened.
+    r = validate_target_resolved("1.1.1.1")
+    assert r.normalized == "1.1.1.1"
+    assert r.resolved_ips == ["1.1.1.1"]
+
+
+def test_validate_target_resolved_url_carries_inner_ips() -> None:
+    # URL path delegates to the hostname branch; resolved_ips reflects the
+    # public addresses we checked, not the URL itself. Uses cloudflare.com so
+    # the test exercises real DNS — same trust assumption as other suite tests.
+    r = validate_target_resolved("https://cloudflare.com/")
+    assert r.normalized == "https://cloudflare.com/"
+    assert r.resolved_ips, "expected at least one resolved IP for cloudflare.com"
+    for ip in r.resolved_ips:
+        # Sanity: every returned address must be a valid IP literal.
+        ipaddress.ip_address(ip)
 
 
 # ---------------------------------------------------------------------------

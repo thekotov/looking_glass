@@ -26,6 +26,7 @@ from app.core.metrics import refresh_loop as metrics_refresh_loop
 from app.core.metrics import setup_metrics
 from app.services.bootstrap import seed_admin_user
 from app.services.scheduler import scheduler_loop
+from app.services.watchdog import watchdog_loop
 from app.ws import task_live
 
 logging.basicConfig(
@@ -45,12 +46,13 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         log.exception("admin seeding failed (continuing — migrations may not be applied yet)")
     metrics_task = asyncio.create_task(metrics_refresh_loop())
     scheduler_task = asyncio.create_task(scheduler_loop())
+    watchdog_task = asyncio.create_task(watchdog_loop())
     try:
         yield
     finally:
-        for task in (metrics_task, scheduler_task):
+        for task in (metrics_task, scheduler_task, watchdog_task):
             task.cancel()
-        for task in (metrics_task, scheduler_task):
+        for task in (metrics_task, scheduler_task, watchdog_task):
             try:
                 await task
             except asyncio.CancelledError:

@@ -31,7 +31,7 @@ from app.schemas.task import (
 )
 from app.services.audit import audit
 from app.services.task_router import RouterError, resolve_agents
-from app.validators.targets import TargetValidationError, validate_target
+from app.validators.targets import TargetValidationError, validate_target_resolved
 from app.validators.task_params import TaskParamsError, validate_task_params
 
 log = logging.getLogger(__name__)
@@ -196,9 +196,10 @@ async def create_task(
         raise HTTPException(status_code=400, detail=f"unknown task type: {payload.type}")
 
     try:
-        normalized_target = validate_target(payload.target)
+        resolved = validate_target_resolved(payload.target)
     except TargetValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    normalized_target = resolved.normalized
 
     try:
         normalized_options = validate_task_params(payload.type, payload.options)
@@ -240,6 +241,7 @@ async def create_task(
         details={
             "type": payload.type,
             "target": normalized_target,
+            "resolved_ips": resolved.resolved_ips,
             "agent_count": len(agents),
         },
     )

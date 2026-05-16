@@ -84,16 +84,35 @@ func (HTTPCheckRunner) Run(ctx context.Context, task Task) (*Result, error) {
 	if u.Hostname() == "" {
 		return failedResult("URL has no host", 0), nil
 	}
-	if _, err := validator.ResolveAndCheck(u.Hostname()); err != nil {
+	addrs, err := validator.ResolveAndCheck(u.Hostname())
+	if err != nil {
 		return failedResult(err.Error(), 0), nil
 	}
+	// Pin the resolved IP into the dialer so http.Client.Do() cannot trigger
+	// a second DNS lookup that returns a fresh — potentially private —
+	// address (classic DNS rebinding). The transport still talks plain
+	// HTTP/HTTPS to the original host, just on the pinned IP.
+	pinnedIP, err := pickIP(addrs, false)
+	if err != nil {
+		// No IPv4 address — fall back to the first resolved address (likely IPv6).
+		pinnedIP = addrs[0]
+	}
 
+	baseDialer := &net.Dialer{Timeout: time.Duration(opts.TimeoutSec) * time.Second}
 	transport := &http.Transport{
 		ResponseHeaderTimeout: time.Duration(opts.TimeoutSec) * time.Second,
 		TLSHandshakeTimeout:   time.Duration(opts.TimeoutSec) * time.Second,
-		DialContext: (&net.Dialer{
-			Timeout: time.Duration(opts.TimeoutSec) * time.Second,
-		}).DialContext,
+		DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
+			_, port, splitErr := net.SplitHostPort(addr)
+			if splitErr != nil {
+				return nil, splitErr
+			}
+			pinned := net.JoinHostPort(pinnedIP.String(), port)
+			return baseDialer.DialContext(dctx, network, pinned)
+		},
+		// TLS verification must still happen against the original hostname
+		// (SNI/SAN matching), which net/http handles via req.URL.Host. The
+		// pinned dial only swaps the IP we connect to, not the cert check.
 	}
 	client := &http.Client{
 		Transport: transport,
