@@ -1,0 +1,13 @@
+FROM node:24-alpine AS build
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json frontend/.npmrc* ./
+RUN npm ci
+COPY frontend ./
+RUN npm run build
+
+FROM nginx:1.27-alpine
+RUN apk add --no-cache openssl
+COPY deploy/nginx/nginx.prod.conf /etc/nginx/nginx.conf
+COPY deploy/nginx/gen-cert.sh /docker-entrypoint.d/00-gen-cert.sh
+RUN chmod +x /docker-entrypoint.d/00-gen-cert.sh
+COPY --from=build /app/dist /usr/share/nginx/html

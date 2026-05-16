@@ -1,0 +1,34 @@
+name: looking-glass-agent
+
+services:
+  agent:
+    build:
+      context: ../agent
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Network mode host is required for accurate network measurements
+    # (ping/mtr/hping3 from the host's network stack, not docker bridge).
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      SERVER_URL: ${SERVER_URL:-https://localhost}
+      AGENT_HOSTNAME: ${AGENT_HOSTNAME:-}
+      HEARTBEAT_INTERVAL: ${HEARTBEAT_INTERVAL:-15s}
+      POLL_INTERVAL: ${POLL_INTERVAL:-5s}
+      # Self-signed cert in dev: agent skips TLS verification.
+      # NEVER set this in production.
+      INSECURE_TLS: ${INSECURE_TLS:-false}
+      STATE_PATH: /var/lib/agent/state.json
+    volumes:
+      - agent-state:/var/lib/agent
+    # Required on Linux for host.docker.internal to resolve to the host.
+    # Docker Desktop (Windows/Mac) provides this automatically — but
+    # extra_hosts under network_mode: host is also a no-op there, so the
+    # actual DNS comes from /etc/hosts injected into the VM.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  agent-state:

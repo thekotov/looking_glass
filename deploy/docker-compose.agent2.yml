@@ -1,0 +1,29 @@
+# Second agent for testing fan-out / multi-region tags locally.
+# Runs in bridge networking (no network_mode: host) so it coexists with
+# the primary agent on the same Windows/Mac host without port conflicts.
+# Use ONLY for dev — real geographic agents should use docker-compose.agent.yml.
+name: looking-glass-agent2
+
+services:
+  agent:
+    build:
+      context: ../agent
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      SERVER_URL: ${SERVER_URL:-https://host.docker.internal}
+      AGENT_HOSTNAME: ${AGENT_HOSTNAME:-agent-eu-test}
+      HEARTBEAT_INTERVAL: ${HEARTBEAT_INTERVAL:-15s}
+      POLL_INTERVAL: ${POLL_INTERVAL:-5s}
+      INSECURE_TLS: ${INSECURE_TLS:-true}
+      STATE_PATH: /var/lib/agent/state.json
+    volumes:
+      - agent2-state:/var/lib/agent
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  agent2-state:

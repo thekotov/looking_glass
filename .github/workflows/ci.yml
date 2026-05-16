@@ -1,0 +1,184 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel duplicate runs on push-to-branch-during-PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ----- agent (Go) -----
+  agent:
+    name: Agent (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: agent/go.sum
+
+      - name: go vet
+        run: cd agent && go vet ./...
+
+      - name: go test
+        run: cd agent && go test -race ./...
+
+      - name: go build (sanity)
+        run: cd agent && go build ./...
+
+  # ----- server (Python) -----
+  server:
+    name: Server (Python)
+    runs-on: ubuntu-latest
+
+    # Real Postgres + Redis so the validator/rate-limit tests touch live
+    # services. Cheaper than spinning a docker-compose stack; same fidelity
+    # for what we're testing.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: lg
+          POSTGRES_PASSWORD: lg
+          POSTGRES_DB: lookingglass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lg"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://lg:lg@localhost:5432/lookingglass
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: ci-secret-not-used-for-anything
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install deps
+        working-directory: server
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Apply migrations
+        working-directory: server
+        run: alembic upgrade head
+
+      - name: Ruff lint
+        working-directory: server
+        run: ruff check app/ tests/
+
+      - name: Pytest
+        working-directory: server
+        # The cross-language drift guard reads ../agent/internal/validator/targets.go
+        # which IS present in this checkout, so it runs (not skipped) here.
+        run: pytest tests/ -v
+
+  # ----- frontend (TypeScript + build) -----
+  frontend:
+    name: Frontend (TS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install deps
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Bundle size guard
+        # Soft check: warn if main chunk exceeds 350KB gzipped. Code-split
+        # routes mean recharts/maps live in their own chunks, so the index
+        # bundle should stay small. Adjust the threshold if a real growth
+        # event happens (don't just bump it — investigate first).
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          ls -la dist/assets/
+          MAIN=$(find dist/assets -name 'index-*.js' | head -1)
+          SIZE=$(wc -c < "$MAIN")
+          echo "Main bundle: $MAIN — $SIZE bytes"
+          if [ "$SIZE" -gt 360000 ]; then
+            echo "::warning::Main bundle is $SIZE bytes — possibly a regression"
+          fi
+
+  # ----- end-to-end (Playwright against the real stack) -----
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    needs: [server, frontend]  # don't waste minutes if unit tests fail
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Bring up the stack
+        run: |
+          cp deploy/.env.example deploy/.env || true
+          docker compose -f deploy/docker-compose.server.yml up -d --build
+          # Wait until /api/health responds.
+          for i in $(seq 1 60); do
+            if curl -fsk https://localhost/api/health > /dev/null; then
+              echo "stack is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "stack failed to come up"
+          docker compose -f deploy/docker-compose.server.yml logs
+          exit 1
+
+      - name: Install Playwright
+        working-directory: frontend
+        run: |
+          npm ci --legacy-peer-deps
+          npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        working-directory: frontend
+        run: npm run test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7

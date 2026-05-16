@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Light/dark theming via attribute on <html data-theme="dark|light">.
+ *
+ * Strategy: we keep the existing Tailwind `slate-*` palette as the default
+ * dark look. For light mode we override the most-used dark surfaces with
+ * lighter equivalents via CSS variables and a small list of utility
+ * overrides. This avoids a full rewrite of every `bg-slate-950` class.
+ *
+ * Caveats:
+ *   * Components that hardcode tiny opacity layers (e.g. /40) may need a
+ *     pass; semantic colors (emerald/amber/red) carry over fine.
+ *   * Maps, charts, code blocks keep the dark palette in light mode too —
+ *     they read better that way.
+ */
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --lg-bg: 2 6 23;            /* slate-950 */
+  --lg-bg-elev: 15 23 42;     /* slate-900 */
+  --lg-bg-elev-2: 30 41 59;   /* slate-800 */
+  --lg-border: 30 41 59;      /* slate-800 */
+  --lg-text: 241 245 249;     /* slate-100 */
+  --lg-text-mute: 100 116 139; /* slate-500 */
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --lg-bg: 248 250 252;       /* slate-50 */
+  --lg-bg-elev: 255 255 255;
+  --lg-bg-elev-2: 226 232 240; /* slate-200 */
+  --lg-border: 203 213 225;   /* slate-300 */
+  --lg-text: 15 23 42;        /* slate-900 */
+  --lg-text-mute: 100 116 139; /* slate-500 */
+}
+
+/* Light-mode overrides for the most common dark surfaces. */
+:root[data-theme="light"] body {
+  background-color: rgb(var(--lg-bg));
+  color: rgb(var(--lg-text));
+}
+
+:root[data-theme="light"] .bg-slate-950 {
+  background-color: rgb(var(--lg-bg)) !important;
+}
+:root[data-theme="light"] .bg-slate-900 {
+  background-color: rgb(var(--lg-bg-elev)) !important;
+}
+:root[data-theme="light"] .bg-slate-900\/50,
+:root[data-theme="light"] .bg-slate-900\/90,
+:root[data-theme="light"] .bg-slate-900\/95 {
+  background-color: rgb(var(--lg-bg-elev)) !important;
+}
+:root[data-theme="light"] .bg-slate-950\/60,
+:root[data-theme="light"] .bg-slate-950\/40 {
+  background-color: rgb(var(--lg-bg)) !important;
+}
+:root[data-theme="light"] .bg-slate-800 {
+  background-color: rgb(var(--lg-bg-elev-2)) !important;
+}
+
+:root[data-theme="light"] .border-slate-800,
+:root[data-theme="light"] .border-slate-700 {
+  border-color: rgb(var(--lg-border)) !important;
+}
+:root[data-theme="light"] .divide-slate-800 > * + * {
+  border-color: rgb(var(--lg-border)) !important;
+}
+
+:root[data-theme="light"] .text-slate-100,
+:root[data-theme="light"] .text-slate-200,
+:root[data-theme="light"] .text-slate-300 {
+  color: rgb(var(--lg-text)) !important;
+}
+:root[data-theme="light"] .text-slate-400 {
+  color: rgb(71 85 105) !important; /* slate-600 */
+}
+:root[data-theme="light"] .text-slate-500,
+:root[data-theme="light"] .text-slate-600,
+:root[data-theme="light"] .text-slate-700 {
+  color: rgb(100 116 139) !important; /* slate-500 */
+}
+
+/* Hover/state overrides for interactive surfaces. */
+:root[data-theme="light"] .hover\:bg-slate-800:hover {
+  background-color: rgb(226 232 240) !important; /* slate-200 */
+}
+:root[data-theme="light"] .hover\:bg-slate-900\/50:hover {
+  background-color: rgb(241 245 249) !important; /* slate-100 */
+}
+
+/* Primary CTA looks fine in both — but the white-on-light variant needs a darker fill. */
+:root[data-theme="light"] .bg-slate-100 {
+  background-color: rgb(15 23 42) !important; /* slate-900 */
+  color: rgb(248 250 252) !important;
+}
+:root[data-theme="light"] .text-slate-900 {
+  color: rgb(248 250 252) !important;
+}
+:root[data-theme="light"] .hover\:bg-white:hover {
+  background-color: rgb(30 41 59) !important; /* slate-800 */
+}
